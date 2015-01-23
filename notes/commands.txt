@@ -1,0 +1,21 @@
+see /READEM.md
+depreciated
+
+# -C does a dry run, no actual changes
+
+
+// Build new Siege server, uses recipe in tasks/siege-rollout.yml
+ansible-playbook -c local -M modules -i files/inventory.ini tasks/siege-rollout.yml -C
+
+
+// Install settings on new Siege machines
+// NOTE: remove local connection
+ansible-playbook -M modules -i files/inventory.ini tasks/siege-install.yml -C
+
+
+// Run siege based on settings in files/siege-siegesrc and files/siege-urls.txt
+// NOTE: remove local connection
+ansible-playbook -M modules -i files/inventory.ini tasks/siege-start.yml -C
+
+// stop
+ansible-playbook -M modules -i files/inventory.ini tasks/siege-stop.yml -C

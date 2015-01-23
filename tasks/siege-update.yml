@@ -1,0 +1,12 @@
+- hosts: siege
+  user: root
+  tasks:
+
+  - name: Install siege URLs list.
+    action: copy src=../files/siege-urls.txt dest=/etc/siege/urls.txt owner=root group=root mode=0644
+
+  - name: Install siege configuration file.
+    action: copy src=../files/siege-siegerc dest=/etc/siege/siegerc owner=root group=root mode=0644
+
+  handlers:
+    - include: ../handlers/siege-handlers.yml

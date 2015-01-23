@@ -1,0 +1,10 @@
+---
+  - name: fire off n ec2 hosts
+    local_action: openstacknova auth_url=$auth_url auth_username=$auth_username auth_password=$auth_password auth_tenant=$auth_tenant region=$region name=$name flavor=5 image=$image rackspace_auth=true wait=true count=$count
+    register: openstack
+  - name: add hosts to instance
+    local_action: add_host hostname=${item.public_ip} groupname=$groupname ansible_connection=ssh
+    with_items: ${openstack.instances}
+  - name: persist inventory
+    local_action: inventory dest=../files/inventory.ini host_group=$groupname host=${item.public_ip} host_vars='{"ansible_ssh_private_key_file":"files/ssh_privatekey","ansible_ssh_user":"root"}'
+    with_items: ${openstack.instances}

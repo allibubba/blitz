@@ -1,0 +1,8 @@
+---
+- hosts: local
+  user: root
+  vars_files: 
+     - ../vars/roundhouse-vars.yml
+#  Need proper name and image for siege.
+  tasks:
+     - include: rackspace.yml name=Siege_Klone count=5 image=9e99b2a9-ce4a-49bd-bbaa-af8465acfc71 groupname=siege

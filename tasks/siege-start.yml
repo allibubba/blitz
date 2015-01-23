@@ -1,0 +1,12 @@
+---
+- hosts: siege
+  user: root
+  tasks:
+
+  - name: Start siege attack.
+    command: /bin/echo `/bin/date` Starting Siege Attack >> /var/log/siege.log
+    notify:
+      - siege attack
+
+  handlers:
+  - include: ../handlers/siege-handlers.yml

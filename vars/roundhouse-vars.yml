@@ -1,0 +1,6 @@
+---
+auth_url: https://identity.api.rackspacecloud.com/v2.0/
+auth_username: roundhousem
+auth_password: b6e5845f2396b025c7210a7f1c42074f
+auth_tenant: 679001
+region: DFW

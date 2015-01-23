@@ -1,0 +1,22 @@
+---
+- hosts: haproxy
+  user: root
+  tasks:
+
+  - name: Install haproxy package.
+    action: apt pkg=haproxy state=installed
+
+  - name: Install haproxy configuration file.
+    action: copy src=/etc/ansible/files/haproxy-haproxy.cfg dest=/etc/haproxy/haproxy.cfg owner=root group=root mode=0644
+
+  - name: Install haproxy default file.
+    action: copy src=/etc/ansible/files/haproxy-default dest=/etc/default/haproxy
+
+  - name: Add Jackson SSH key
+    action: authorized_key user=root key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC5+ZvXWGXcK/o7XzhOzCYU+CTv6rKkVn1gGtVF5l8f3fij450i3YriQJRAgd+wS4q3Ko0wJK3nya7CQtppmuQCEYfmjhKHbizhTLrgDNKZ3cPt3InfsWX1J2f/e4CWCmT9CSdRw5q0bxm4J6DPLweIUIuO9P7kpJ8ZwuuV3kmRcWS68jljEutXhP7NfvDFoIl1gOSFIrusDQIYYY1b7U3MdeT/gZtA3OtLWDRAPJcZAIq00NXh4Ct02zBl1QzBre4WQu2JIRQYYdBSqLLZXwx3WFEtEvHpq0TcVSGURqHpm9ln22zaqSKbYmlPwJmpTJCPZbUvGlIchQKDU4s0hWVR jackson@roundhouseagency.com"
+
+  - name: Start haproxy service.
+    action: service name=haproxy state=started
+
+  handlers:
+  - include: ../handlers/haproxy-handlers.yml

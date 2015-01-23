@@ -1,0 +1,7 @@
+---
+- hosts: local
+  user: root
+  vars_files: 
+     - ../vars/roundhouse-vars.yml
+  tasks:
+     - include: rackspace.yml name=HAProxy_LB_Clone count=3 image=a2dc08b0-97e1-4294-8e27-b44db73e9607 groupname=haproxy

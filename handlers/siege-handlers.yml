@@ -1,0 +1,6 @@
+---
+- name: siege attack
+  action: command /usr/bin/siege_bg
+
+- name: siege standdown
+  action: command /usr/bin/killall -9 siege

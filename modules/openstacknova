@@ -1,0 +1,211 @@
+#!/usr/bin/python -tt
+#
+# Copyright (c) 2013 Parthenon Software Group, Inc.
+#
+
+DOCUMENTATION = '''
+---
+module: ec2
+short_description: create an instance in ec2, return instanceid
+description:
+     - creates ec2 instances and optionally waits for it to be 'running'. This module has a dependency on the external I(euca2ools) package.
+version_added: "0.9"
+options:
+  key_name:
+    description:
+      - key pair to use on the instance
+    required: false
+    default: null
+    aliases: ['keypair']
+  admin_password:
+    description:
+      - a specific admin password to use on the instance
+    required: false
+    default: null
+    aliases: []
+  name:
+    description:
+      - name of the instance
+    required: true
+    default: null
+    aliases: []
+  flavor:
+    description:
+      - flavor ID to use for the instance
+    required: true
+    default: null
+    aliases: []
+  image:
+    description:
+       - image ID to use for the instance
+    required: true
+    default: null
+    aliases: []
+  wait:
+    description:
+      - wait for the instance to be in state 'ACTIVE' before returning
+    required: False
+    default: False
+    aliases: []
+  auth_url:
+    description:
+      - url to use to connect to the identity endpoint of your OpenStack service
+    required: False
+    default: null
+    aliases: []
+  auth_password:
+    description:
+      - OpenStack password (or API key, if you're using Rackspace)
+    required: False
+    default: null
+    aliases: []
+  auth_username:
+    description:
+      - OpenStack username
+    required: False
+    default: null
+    aliases: []
+  auth_tenant:
+    description:
+      - OpenStack tenant ID (in Rackspace, this is your user number in the control panel)
+    required: False
+    default: null
+    aliases: []
+  count:
+    description:
+      - number of instances to launch
+    required: False
+    default: 1
+    aliases: []
+  metadata:
+    description:
+      - opaque blob of data which is made available to the OpenStack instance
+    required: False
+    default: null
+    aliases: []
+  region:
+    description:
+      - region ID of the endpoint you intend to connect to, returned by the identity endpoint
+    required: False
+    default: null
+    aliases: []
+  rackspace_auth:
+    description:
+      - specifies that this is a Rackspace endpoint, which affects how authentication is done
+    required: False
+    default: False
+    aliases: []
+examples:
+   - code: "local_action: openstacknova auth_username=myusername auth_password=e58b5cd64bf23010a7f1c2a172f4ff74 auth_url=https://identity.api.rackspacecloud.com/v2.0/ auth_tenant=990129 region=DFW instance_type=2 image=5cebb13a-f783-4f8c-8058-c4182c724ccd rackspace_auth=True wait=true count=3"
+     description: "Examples from Ansible Playbooks"
+requirements: [ "python-novaclient" ]
+author: Andy Schmitt
+'''
+
+import sys
+import time
+
+try:
+    import novaclient
+    from novaclient.v1_1 import client as client_interface
+except ImportError:
+    print "failed=True msg='python-novaclient required for this module'"
+    sys.exit(1)
+
+def main():
+    module = AnsibleModule(
+        argument_spec = dict(
+            key_name = dict(required=False, aliases = ['keypair']),
+            admin_password = dict(),
+            name = dict(required=True),
+            flavor = dict(required=True),
+            image = dict(required=True),
+            count = dict(default='1'), 
+            wait = dict(choices=BOOLEANS, default=False),
+            auth_url = dict(),
+            auth_username = dict(),
+            auth_password = dict(),
+            auth_tenant = dict(),
+            metadata = dict(),
+            region = dict(),
+            rackspace_auth=dict(choices=BOOLEANS, default=False)
+        )
+    )
+
+    key_name = module.params.get('key_name')
+    admin_password = module.params.get('admin_password')
+    name = module.params.get('name')
+    flavor = module.params.get('flavor')
+    image = module.params.get('image')
+    count = module.params.get('count') 
+    wait = module.params.get('wait')
+    auth_url = module.params.get('auth_url')
+    auth_username = module.params.get('auth_username')
+    auth_password = module.params.get('auth_password')
+    auth_tenant = module.params.get('auth_tenant')
+    metadata = module.params.get('metadata')
+    rackspace_auth = module.params.get('rackspace_auth')
+    region = module.params.get('region')
+    
+    # allow eucarc environment variables to be used if ansible vars aren't set
+    if not auth_url and 'OS_AUTH_URL' in os.environ:
+        auth_url = os.environ['OS_AUTH_URL']
+    if not auth_username and 'OS_USERNAME' in os.environ:
+        auth_username = os.environ['OS_USERNAME']
+    if not auth_password and 'OS_PASSWORD' in os.environ:
+        auth_password = os.environ['OS_PASSWORD']
+    if not auth_tenant and 'OS_TENANT_NAME' in os.environ:
+        auth_tenant = os.environ['OS_TENANT_NAME']
+    if not region and 'OS_REGION_NAME' in os.environ:
+        auth_tenant = os.environ['OS_REGION_NAME']
+
+    # This addresses a total hack in python-novaclient that gets around the whole
+    # auth API with an OS env variable flag. I'd love to get rid of this,
+    # perhaps I'll submit a patch to them later.
+    if rackspace_auth:
+        os.environ["NOVA_RAX_AUTH"] = "1"
+
+    try:
+        client = client_interface.Client(auth_username, auth_password, auth_tenant, auth_url, service_type="compute", region_name=region)
+
+        servers = []
+        for i in range(0, int(count)):
+            server = client.servers.create(name, image, flavor, meta=metadata, key_name=key_name)
+            servers.append(server)
+        
+    except novaclient.exceptions.BadRequest as e:
+        module.fail_json(msg = "%s" % (e))
+
+    for server in servers:
+        server.current_data = client.servers.get(server.id)
+        if wait:
+            while server.current_data.status != "ACTIVE":
+                time.sleep(5)
+                server.current_data = client.servers.get(server.id)
+    
+    instances = []
+    for server in servers:
+        d = {
+               'id': server.id,
+               'admin_pass': server.adminPass,
+               'public_ip': '',
+               'private_ip': '',
+            }
+        if "public" in server.current_data.addresses:
+            for addr in server.current_data.addresses["public"]:
+                if addr["version"] == 4:
+                    d["public_ip"] = addr["addr"]
+            for addr in server.current_data.addresses["private"]:
+                if addr["version"] == 4:
+                    d["private_ip"] = addr["addr"]
+
+        instances.append(d)
+
+    result = {"changed": True,
+              "instances": instances }
+    module.exit_json(**result)
+
+# this is magic, see lib/ansible/module_common.py
+#<<INCLUDE_ANSIBLE_MODULE_COMMON>>
+
+main()

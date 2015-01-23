@@ -1,0 +1,12 @@
+---
+- hosts: siege
+  user: root
+  tasks:
+
+  - name: Stop siege attack.
+    command: /bin/echo "Stopping siege attack"
+    notify:
+      - siege standdown
+
+  handlers:
+  - include: ../handlers/siege-handlers.yml

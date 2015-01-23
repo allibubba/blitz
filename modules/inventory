@@ -1,0 +1,264 @@
+#!/usr/bin/python
+# (c) 2013, Parthenon Software Group <sales () parthenonsoftware.com>
+#
+#
+
+DOCUMENTATION = '''
+---
+module: inventory
+short_description: Change server/group inventory and variables in Ansible files
+description:
+     - Manage (add, remove, change) individual servers in an Ansible inventory file.
+       Adds server groups if they don't exist.
+version_added: "0.9"
+options:
+  dest:
+    description:
+      - Path to the INI-style Ansible inventory file; this file must already exist
+    required: true
+    default: null
+  host_group:
+    description:
+      - Name of server group. This is added if C(state=present) automatically when
+        a single server is being added. If left blank, all group references will be to
+        ungrouped servers
+    required: false
+    default: null
+  parent_group:
+    description:
+     - The name of a parent group to add a group under. If the host is left blank, parent_group is set,
+       and host_group is set, host_group will be added as a child group of parent_group.
+    required: false
+    default: null
+  host:
+    description:
+     - The host name or IP to add to the host group. If host_group is left blank, host will be added
+       to ungrouped hosts.
+    required: false
+    default: null
+  port:
+    description:
+     - If host is set and port is set, the port will be explicitly specified in the configuration file for this
+       host. This must be an integer value.
+    required: false
+    default: null
+  state:
+    description:
+     - Describes if the host/group is to be removed or added to the inventory file.
+    required: true
+    default: "present"
+    choices: [ "present", "absent" ]
+  host_vars:
+    description:
+     - JSON string with a dictionary of additional variables to set for the referenced host
+  group_vars:
+    description:
+     - JSON string with a dictionary of additional variables to set for the referenced group
+  backup:
+    description:
+      - Create a backup file including the timestamp information so you can get
+        the original file back if you somehow clobbered it incorrectly.
+    required: false
+    default: "no"
+    choices: [ "yes", "no" ]
+  others:
+     description:
+       - all arguments accepted by the M(file) module also work here
+     required: false
+examples:
+   - code: "inventory: dest=/etc/ansible/inventory.ini host_group=webservers server=192.168.1.55 mode=0600 backup=yes"
+     description: Add C(192.168.1.55) to group C([webservers]) in said file, backing it up
+   - code: "inventory: dest=/etc/ansible/inventory.ini parent_group=texas host_group=webservers server=192.168.1.55"
+     description: Add C(192.168.1.55) to group C([webservers]), and ensure that webservers is a child group of texas
+   - code: "inventory: dest=/etc/ansible/inventory.ini server=192.168.1.55"
+     description: Add C(192.168.1.55) to no group at all
+   - code: "inventory: dest=/etc/ansible/inventory.ini host_group=texas"
+     description: Creates a host group called texas if it's not already present
+   - code: "inventory: dest=/etc/ansible/inventory.ini state=absent host_group=texas"
+     description: Deletes the host group texas
+   - code: "inventory: dest=/etc/ansible/inventory.ini state=absent host_group=texas parent_group=rattlesnakes"
+     description: Deletes the host group texas, but only from rattlesnakes
+notes:
+   - A group named C(ungrouped) or C(all) will be explicitly rejected by the module to prevent hash conflicts in the internal
+     representation of the inventory.
+author: Andy Schmitt
+'''
+
+
+from ansible.inventory.ini import InventoryParser
+from ansible.inventory import Group, Host
+
+def recursive_delete_child_group(groupname, groups):
+    for g in groups.keys():
+        recursive_delete_child_group(groupname, groups[g].child_groups)
+    if groupname in groups:
+        del groups[groupname]
+
+def do_ini(module, filename, group=None, parent_group=None, host=None, port=None, state='present', host_vars=None, group_vars=None, backup=False):
+
+    changed = False
+    i = InventoryParser(filename)
+
+    if group == "ungrouped" or group == "all":
+        module.fail_json(msg="Can't write reserved name ('all' or 'ungrouped') to group entry; don't include a group name if you want to use ungrouped")
+
+    if state == 'absent':
+        if host is None:
+            if parent_group is None:
+                recursive_delete_child_group(group, i.groups)
+            else:
+                if parent_group in i.groups and group in i.groups[parent_group].child_groups:
+                    del i.groups[parent_group].child_groups[group]
+        else:
+            if group in i.groups:
+                for h in i.groups[group].hosts:
+                    if h.name == host:
+                        i.groups[group].hosts.remove(h)
+                        changed = True
+
+    if state == 'present':
+        if group is not None:
+            if group not in i.groups:
+                thegroup = Group(group)
+                i.groups[group] = thegroup
+
+                changed = True
+            else:
+                thegroup = i.groups[group]
+
+            if parent_group is not None:
+                if parent_group not in i.groups:
+                    module.fail_json(msg="Parent group not found when adding new group to it")
+                elif group not in i.groups[parent_group].child_groups:
+                    i.groups[parent_group].add_child_group(thegroup)
+                    changed = True
+        else:
+            thegroup = i.groups["ungrouped"]
+        
+        if group_vars is not None:
+            existing_vars = thegroup.vars
+            for (k, v) in group_vars.iteritems():
+                if k not in existing_vars or existing_vars[k] != v:
+                    thegroup.set_variable(k, v)
+                    changed = True
+
+        if host is not None:
+            thehost = None
+            for h in thegroup.hosts:
+                if h.name == host:
+                    thehost = h
+
+            if thehost is None:
+                thehost = Host(host, port)
+                thegroup.add_host(thehost)
+                changed = True
+
+            if host_vars is not None:
+                existing_vars = thehost.vars
+                for (k, v) in host_vars.iteritems():
+                    if k in ['inventory_hostname','inventory_hostname_short','group_names']:
+                        module.fail_json(msg="Can't write reserved variable name to host entry")
+
+                    if k not in existing_vars or existing_vars[k] != v:
+                        thehost.set_variable(k, v)
+                        changed = True
+
+    if changed:
+        if backup:
+            module.backup_local(filename)
+
+        try:
+            f = open(filename, 'w')
+            do_write_group(i.groups["ungrouped"], f)
+            for group in i.groups.values():
+                if group.name != "ungrouped":
+                    do_write_group(group, f)
+        except IOError:
+            module.fail_json(msg="Can't open file %s for writing" % filename)
+
+    return changed
+
+def do_write_host(host, f):
+    f.write(host.name)
+    if "ansible_ssh_port" in host.vars:
+        f.write(":%s" % host.vars["ansible_ssh_port"])
+    for (k, v) in host.vars.iteritems():
+        f.write(" %s=%s" % (k, v))
+    f.write("\n")
+
+def do_write_group(group, f):
+    if group.name == "all":
+        return
+
+    if group.name != "ungrouped":
+        f.write("[%s]\n" % group.name)
+
+    for host in group.hosts:
+        do_write_host(host, f)
+    f.write("\n")
+
+    if len(group.vars) > 0:
+        f.write("[%s:vars]\n" % group.name)
+        for (k, v) in group.vars.iteritems():
+            f.write("%s=%s\n" % (k, v))
+        f.write("\n")
+
+    if len(group.child_groups) > 0:
+        f.write("[%s:children]\n" % group.name)
+        for child in group.child_groups:
+            f.write("%s\n" % child.name)
+        f.write("\n")
+
+
+# ==============================================================
+# main
+
+def main():
+
+    module = AnsibleModule(
+        argument_spec = dict(
+            dest = dict(required=True),
+            host_group = dict(required=True),
+            parent_group = dict(),
+            host = dict(),
+            port = dict(),
+            host_vars = dict(),
+            group_vars = dict(),
+            backup = dict(default='no', type='bool'),
+            state = dict(default='present', choices=['present', 'absent'])
+        ),
+        add_file_common_args = True
+    )
+
+    info = dict()
+
+    dest = os.path.expanduser(module.params['dest'])
+    host_group = module.params['host_group']
+    parent_group = module.params['parent_group']
+    host = module.params['host']
+    port = module.params['port']
+    state = module.params['state']
+    group_vars = module.params['group_vars']
+    host_vars = module.params['host_vars']
+    backup = module.params['backup']
+
+    if port is not None and not port.isdigit():
+        module.fail_json(msg="When specifying a port, port must be an integer")
+
+    if group_vars is not None:
+        group_vars = module.from_json(group_vars)
+
+    if host_vars is not None:
+        host_vars = module.from_json(host_vars)
+
+    changed = do_ini(module, dest, host_group, parent_group, host, port, state, host_vars, group_vars, backup)
+
+    file_args = module.load_file_common_arguments(module.params)
+    changed = module.set_file_attributes_if_different(file_args, changed)
+
+    # Mission complete
+    module.exit_json(dest=dest, changed=changed, msg="OK")
+
+# this is magic, see lib/ansible/module_common.py
+#<<INCLUDE_ANSIBLE_MODULE_COMMON>>
+main()

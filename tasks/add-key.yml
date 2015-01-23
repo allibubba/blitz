@@ -1,0 +1,7 @@
+---
+- hosts: siege
+  user: root
+  tasks:
+
+  - name: Add roundhouse SSH keys
+    action: authorized_key user=root key="{{ lookup('file', '$HOME/.ssh/id_rsa.pub') }}"
