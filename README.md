@@ -51,3 +51,6 @@ push both config and URL's
 ### reboot
 
     ansible siege -i files/inventory.ini -a "/sbin/reboot"
+
+### TODO
+    Update Documentation, roll into quick start format
